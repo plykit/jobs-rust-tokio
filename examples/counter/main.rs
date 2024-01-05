@@ -1,11 +1,9 @@
 use async_trait::async_trait;
-use jobs::{Job, JobConfig, schedule};
-use jobs::{Error, Result};
-use jobs::JobManager;
 use mongodb::Client;
+use ply_jobs::{schedule, Error, Job, JobConfig, JobManager, MongoRepo, Result};
 use serde::{Deserialize, Serialize};
 use std::process;
-use tokio::time::{Duration, sleep};
+use tokio::time::{sleep, Duration};
 
 #[tokio::main]
 async fn main() {
@@ -17,7 +15,7 @@ async fn main() {
         .map_err(|e| Error::Repo(e.to_string()))
         .unwrap();
 
-    let repo = jobs::MongoRepo::new(client).unwrap();
+    let repo = MongoRepo::new(client).unwrap();
 
     // Variant 2 - Use PickleDB
     // let db_client = PickleDb::new(

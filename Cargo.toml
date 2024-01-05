@@ -6,8 +6,6 @@ description = "This crate provides the ability to run background jobs on a sched
 license = "MIT-0"
 
 [features]
-#mongodb = ["dep:mongodb"]
-#pickledb = ["dep:pickledb"]
 mongodb = ["dep:mongodb"]
 pickledb = ["dep:pickledb"]
 
