@@ -1,3 +1,5 @@
+use crate::Error;
+use crate::Result;
 use cron::Schedule;
 use std::str::FromStr;
 
@@ -9,4 +11,11 @@ pub fn minutely() -> Schedule {
 }
 pub fn every_five_minutes() -> Schedule {
     Schedule::from_str("0 */5 * * * *").expect("every_five_minutes cron expression should parse")
+}
+
+pub fn parse(expr: &str) -> Result<Schedule> {
+    Schedule::from_str(expr).map_err(|e| Error::InvalidCronExpression {
+        expression: expr.to_owned(),
+        msg: e.to_string(),
+    })
 }

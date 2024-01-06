@@ -28,7 +28,9 @@ impl<JR: Repo> Debug for Executor<JR> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Executor::Initial(..) => f.write_str("--------------------------- initial"),
-            Executor::Sleeping(..) => f.write_str("--------------------------- sleeping"),
+            Executor::Sleeping(_, delay) => f.write_str(
+                format!("--------------------------- sleeping {}s", delay.as_secs()).as_str(),
+            ),
             Executor::Start(..) => f.write_str("------------------------------------ start"),
             Executor::TryLock(..) => f.write_str("------------------------------------ trylock"),
             Executor::CheckDue(..) => f.write_str("------------------------------------ CheckDue"),

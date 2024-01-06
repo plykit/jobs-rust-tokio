@@ -15,7 +15,7 @@ async fn main() {
         .map_err(|e| Error::Repo(e.to_string()))
         .unwrap();
 
-    let repo = MongoRepo::new(client).unwrap();
+    let repo = MongoRepo::new(client);
 
     // Variant 2 - Use PickleDB
     // let db_client = PickleDb::new(
@@ -35,7 +35,7 @@ async fn main() {
 
     manager.register(config, job);
 
-    let _ = manager.start_all().await.unwrap();
+    let _ = manager.start_all().unwrap();
     sleep(Duration::from_secs(120)).await;
 
     // manager

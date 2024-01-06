@@ -39,7 +39,7 @@ impl<J: Repo + Clone + Send + Sync + 'static> JobManager<J> {
     }
 
     /// start_all will spawn the jobs and run the job for ever until the job is stopped or aborted
-    pub async fn start_all(&mut self) -> Result<()> {
+    pub fn start_all(&mut self) -> Result<()> {
         for job in self.jobs.iter_mut().filter(|jb| jb.registered()) {
             let (tx, rx) = oneshot::channel();
             let job_repo = self.job_repo.clone();

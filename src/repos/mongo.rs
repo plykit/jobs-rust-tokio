@@ -25,8 +25,8 @@ pub struct MongoRepo {
 }
 
 impl MongoRepo {
-    pub fn new(client: Client) -> Result<MongoRepo> {
-        Ok(MongoRepo { client })
+    pub fn new(client: Client) -> MongoRepo {
+        MongoRepo { client }
     }
 }
 

@@ -1,5 +1,7 @@
 # Job Manager
 
+[![MIT licensed](https://img.shields.io/badge/license-MIT0-blue.svg)](./LICENSE)
+
 Job Manager is a Rust crate for scheduling and managing asynchronous jobs.
 
 # Status
