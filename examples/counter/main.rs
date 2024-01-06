@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use mongodb::Client;
-use ply_jobs::{schedule, Error, Job, JobConfig, JobManager, MongoRepo, Result};
+use ply_jobs::{schedule, Error, Job, JobConfig, JobManager, MongoRepo};
 use serde::{Deserialize, Serialize};
 use std::process;
 use tokio::time::{sleep, Duration};
@@ -58,7 +58,8 @@ struct Counter(i32);
 
 #[async_trait]
 impl Job for CountJob {
-    async fn call(&mut self, state: Vec<u8>) -> Result<Vec<u8>> {
+    type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
+    async fn call(&mut self, state: Vec<u8>) -> std::result::Result<Vec<u8>, Self::Error> {
         let mut data: State = if state.len() == 0 {
             State(0)
         } else {
@@ -85,7 +86,7 @@ impl Job for CountJob {
                 println!("Time in London: {:?}", body.lines().take(3).last().unwrap());
                 Ok(serde_json::to_vec(&data).unwrap())
             }
-            Err(_e) => Err(Error::TODO),
+            Err(e) => Err(Box::new(e)),
         }
     }
 }

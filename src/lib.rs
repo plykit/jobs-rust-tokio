@@ -6,18 +6,18 @@ mod job;
 mod manager;
 mod repos;
 
-use thiserror::Error;
 use async_trait::async_trait;
-use std::future::Future;
 use chrono::{DateTime, Utc};
-use std::time::Duration;
 use cron::Schedule;
 use derive_more::Into;
 use serde::{Deserialize, Serialize};
+use std::future::Future;
+use std::time::Duration;
+use thiserror::Error;
 
 pub mod schedule;
-pub use manager::JobManager;
 use job::JobData;
+pub use manager::JobManager;
 #[cfg(feature = "mongodb")]
 pub use repos::mongo::MongoRepo;
 #[cfg(feature = "pickledb")]
@@ -25,7 +25,8 @@ pub use repos::pickledb::PickleDbRepo;
 
 #[async_trait]
 pub trait Job {
-    async fn call(&mut self, state: Vec<u8>) -> Result<Vec<u8>>;
+    type Error: Sync + Send + 'static;
+    async fn call(&mut self, state: Vec<u8>) -> std::result::Result<Vec<u8>, Self::Error>;
 }
 
 #[derive(Error, Debug)]
@@ -119,4 +120,3 @@ impl JobConfig {
         self
     }
 }
-

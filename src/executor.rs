@@ -6,25 +6,25 @@ use std::fmt::{Debug, Formatter};
 use tokio::sync::oneshot::Receiver;
 use tokio::time::{sleep, Duration};
 
-struct Shared<JR> {
+struct Shared<JR, E> {
     instance: String,
     name: JobName,
     repo: JR,
     cancel: Receiver<()>,
-    action: Box<dyn Job + Send + Sync>,
+    action: Box<dyn Job<Error = E> + Send + Sync>,
 }
 
-enum Executor<JR: Repo> {
-    Initial(Shared<JR>, JobData, Duration),
-    Sleeping(Shared<JR>, Duration),
-    Start(Shared<JR>, JobData),
-    CheckDue(Shared<JR>, Duration),
-    TryLock(Shared<JR>, Duration),
-    Run(Shared<JR>, JobData, JR::Lock),
+enum Executor<JR: Repo, E> {
+    Initial(Shared<JR, E>, JobData, Duration),
+    Sleeping(Shared<JR, E>, Duration),
+    Start(Shared<JR, E>, JobData),
+    CheckDue(Shared<JR, E>, Duration),
+    TryLock(Shared<JR, E>, Duration),
+    Run(Shared<JR, E>, JobData, JR::Lock),
     Done,
 }
 
-impl<JR: Repo> Debug for Executor<JR> {
+impl<JR: Repo, E> Debug for Executor<JR, E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Executor::Initial(..) => f.write_str("--------------------------- initial"),
@@ -40,10 +40,10 @@ impl<JR: Repo> Debug for Executor<JR> {
     }
 }
 
-pub(crate) async fn run<J: Repo + Clone + Send + Sync>(
+pub(crate) async fn run<J: Repo + Clone + Send + Sync, E: Send + 'static + Sync>(
     instance: String,
     jobconf: JobConfig,
-    action: Box<dyn Job + Send + Sync>,
+    action: Box<dyn Job<Error = E> + Send + Sync>,
     repo: J,
     cancel: Receiver<()>,
     delay: Duration,
@@ -73,12 +73,16 @@ pub(crate) async fn run<J: Repo + Clone + Send + Sync>(
     }
 }
 
-async fn on_initial<R: Repo>(shared: Shared<R>, jdata: JobData, delay: Duration) -> Executor<R> {
+async fn on_initial<R: Repo, E>(
+    shared: Shared<R, E>,
+    jdata: JobData,
+    delay: Duration,
+) -> Executor<R, E> {
     sleep(delay).await;
     Executor::Start(shared, jdata)
 }
 
-async fn on_sleeping<R: Repo>(mut shared: Shared<R>, delay: Duration) -> Executor<R> {
+async fn on_sleeping<R: Repo, E>(mut shared: Shared<R, E>, delay: Duration) -> Executor<R, E> {
     let done = tokio::select! {
         _ = sleep(delay) =>  false,
         _ = &mut shared.cancel => true
@@ -91,7 +95,7 @@ async fn on_sleeping<R: Repo>(mut shared: Shared<R>, delay: Duration) -> Executo
     }
 }
 
-async fn on_start<R: Repo>(mut shared: Shared<R>, jdata: JobData) -> Executor<R> {
+async fn on_start<R: Repo, E>(mut shared: Shared<R, E>, jdata: JobData) -> Executor<R, E> {
     match shared.repo.get(jdata.name.clone().into()).await {
         Err(e) => {
             error!("get job data: {:?}", e);
@@ -111,7 +115,7 @@ async fn on_start<R: Repo>(mut shared: Shared<R>, jdata: JobData) -> Executor<R>
     }
 }
 
-async fn on_check_due<R: Repo>(mut shared: Shared<R>, delay: Duration) -> Executor<R> {
+async fn on_check_due<R: Repo, E>(mut shared: Shared<R, E>, delay: Duration) -> Executor<R, E> {
     match shared.repo.get(shared.name.clone()).await {
         // TODO split these two cases for clarity
         Err(_) | Ok(None) => Executor::Sleeping(shared, delay), // TODO Retry interval, attempt counter, bbackoff },
@@ -119,7 +123,7 @@ async fn on_check_due<R: Repo>(mut shared: Shared<R>, delay: Duration) -> Execut
         Ok(Some(_)) => Executor::Sleeping(shared, delay),
     }
 }
-async fn on_try_lock<R: Repo>(mut shared: Shared<R>, delay: Duration) -> Executor<R> {
+async fn on_try_lock<R: Repo, E>(mut shared: Shared<R, E>, delay: Duration) -> Executor<R, E> {
     match shared
         .repo
         .lock(
@@ -153,7 +157,11 @@ async fn on_try_lock<R: Repo>(mut shared: Shared<R>, delay: Duration) -> Executo
         }
     }
 }
-async fn on_run<R: Repo>(mut shared: Shared<R>, jdata: JobData, lock: R::Lock) -> Executor<R> {
+async fn on_run<R: Repo, E: Send + 'static + Sync>(
+    mut shared: Shared<R, E>,
+    jdata: JobData,
+    lock: R::Lock,
+) -> Executor<R, E> {
     if !jdata.due(Utc::now()) {
         return Executor::Sleeping(shared, jdata.check_interval);
     }
@@ -189,9 +197,9 @@ async fn on_run<R: Repo>(mut shared: Shared<R>, jdata: JobData, lock: R::Lock) -
     }
 }
 
-enum RunSelectResult {
+enum RunSelectResult<E> {
     Success,
-    JobFailure(Error),
+    JobFailure(E),
     LockFailure(Error),
     SaveFailure(Error),
     Canceled,

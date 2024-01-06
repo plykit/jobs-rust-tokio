@@ -7,16 +7,16 @@ use tokio::sync::oneshot::Sender;
 use crate::{executor, Error, Job, JobConfig, JobName, Repo, Result};
 
 /// JobManager holds the job + lock repo along with the list of jobs
-pub struct JobManager<J>
+pub struct JobManager<J, E>
 where
     J: Repo + Sync + Send + Clone,
 {
     instance: String,
     job_repo: J,
-    jobs: Vec<ManagedJob>,
+    jobs: Vec<ManagedJob<E>>,
 }
 
-impl<J: Repo + Clone + Send + Sync + 'static> JobManager<J> {
+impl<J: Repo + Clone + Send + Sync + 'static, E: Send + Sync + 'static> JobManager<J, E> {
     pub fn new(instance: String, job_repo: J) -> Self {
         JobManager {
             instance,
@@ -34,7 +34,11 @@ impl<J: Repo + Clone + Send + Sync + 'static> JobManager<J> {
     ///             expr: "* */3 * * * *".to_string(),
     ///        },
     ///     );
-    pub fn register(&mut self, data: JobConfig, action: impl Job + Send + Sync + 'static) {
+    pub fn register(
+        &mut self,
+        data: JobConfig,
+        action: impl Job<Error = E> + Send + Sync + 'static,
+    ) {
         self.jobs.push(ManagedJob::new(data, action)); // TODO: add validation during registration??
     }
 
@@ -78,8 +82,8 @@ impl<J: Repo + Clone + Send + Sync + 'static> JobManager<J> {
     }
 }
 
-impl ManagedJob {
-    pub fn new(data: JobConfig, action: impl Job + Send + Sync + 'static) -> Self {
+impl<E> ManagedJob<E> {
+    pub fn new(data: JobConfig, action: impl Job<Error = E> + Send + Sync + 'static) -> Self {
         ManagedJob {
             data,
             action: Some(Box::new(action)),
@@ -94,9 +98,9 @@ impl ManagedJob {
     }
 }
 
-pub struct ManagedJob {
+pub struct ManagedJob<E> {
     pub data: JobConfig,
-    pub action: Option<Box<dyn Job + Send + Sync>>,
+    pub action: Option<Box<dyn Job<Error = E> + Send + Sync>>,
     pub status: Status,
 }
 
