@@ -20,11 +20,15 @@ use tokio::time::sleep;
 #[derive(Clone)]
 pub struct MongoRepo {
     client: Client,
+    database: String,
 }
 
 impl MongoRepo {
-    pub fn new(client: Client) -> MongoRepo {
-        MongoRepo { client }
+    pub fn new(client: Client, database: impl Into<String>) -> MongoRepo {
+        MongoRepo {
+            client,
+            database: database.into(),
+        }
     }
 }
 
@@ -84,7 +88,7 @@ impl Repo for MongoRepo {
     async fn create(&mut self, data: JobData) -> Result<()> {
         let job: JobDto = data.into();
         self.client
-            .database("jobs")
+            .database(self.database.as_str())
             .collection::<JobDto>("job")
             .insert_one(&job, None)
             .await
@@ -95,7 +99,7 @@ impl Repo for MongoRepo {
     async fn get(&mut self, name: JobName) -> Result<Option<JobData>> {
         let j = self
             .client
-            .database("jobs")
+            .database(self.database.as_str())
             .collection::<JobDto>("job")
             .find_one(doc! {"_id":name.as_ref().to_string()}, None)
             .await
@@ -117,7 +121,7 @@ impl Repo for MongoRepo {
         let opts: UpdateOptions = UpdateOptions::builder().upsert(false).build();
         let update_doc = doc! { "$set": doc! { "state": STANDARD.encode(&state) }};
         self.client
-            .database("jobs")
+            .database(self.database.as_str())
             .collection::<JobDto>("job")
             .update_one(doc! {"_id":name.as_str()}, update_doc, opts)
             .await
@@ -136,7 +140,7 @@ impl Repo for MongoRepo {
         }};
 
         self.client
-            .database("jobs")
+            .database(self.database.as_str())
             .collection::<JobDto>("job")
             .update_one(doc! {"_id":name.as_str()}, update_doc, opts)
             .await
@@ -164,7 +168,7 @@ impl Repo for MongoRepo {
 
         match self
             .client
-            .database("jobs")
+            .database(self.database.as_str())
             .collection::<JobDto>("job")
             .find_one_and_update(filter_doc, update_doc, opts)
             .await
@@ -175,6 +179,7 @@ impl Repo for MongoRepo {
                 let db = self.client.clone();
 
                 let jd: Result<JobData> = res.try_into();
+                let database = self.database.clone();
                 match jd {
                     Ok(k) => {
                         let fut = async move {
@@ -187,7 +192,7 @@ impl Repo for MongoRepo {
                                 let expires = Utc::now().timestamp() + ttl.as_secs() as i64;
                                 let update_doc = doc! { "$set": doc! { "owner" : owner.clone(), "expires": expires }};
                                 match db
-                                    .database("jobs")
+                                    .database(database.as_str())
                                     .collection::<JobDto>("job")
                                     .update_one(doc! {"_id":name.as_str()}, update_doc, opts)
                                     .await {

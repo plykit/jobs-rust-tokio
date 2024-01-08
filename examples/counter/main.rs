@@ -14,7 +14,7 @@ async fn main() {
         .await
         .unwrap();
 
-    let repo = MongoRepo::new(client);
+    let repo = MongoRepo::new(client, "test");
 
     // Variant 2 - Use PickleDB
     // let db_client = PickleDb::new(
