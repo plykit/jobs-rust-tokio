@@ -8,7 +8,7 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use chrono::{DateTime, Utc};
 use futures::FutureExt;
-use log::trace;
+use log::info;
 use mongodb::bson::doc;
 use mongodb::options::{FindOneAndUpdateOptions, ReturnDocument, UpdateOptions};
 use mongodb::Client;
@@ -21,13 +21,19 @@ use tokio::time::sleep;
 pub struct MongoRepo {
     client: Client,
     database: String,
+    collection: String,
 }
 
 impl MongoRepo {
-    pub fn new(client: Client, database: impl Into<String>) -> MongoRepo {
+    pub fn new(
+        client: Client,
+        database: impl Into<String>,
+        collection: impl Into<String>,
+    ) -> MongoRepo {
         MongoRepo {
             client,
             database: database.into(),
+            collection: collection.into(),
         }
     }
 }
@@ -89,7 +95,7 @@ impl Repo for MongoRepo {
         let job: JobDto = data.into();
         self.client
             .database(self.database.as_str())
-            .collection::<JobDto>("job")
+            .collection::<JobDto>(self.collection.as_str())
             .insert_one(&job, None)
             .await
             .map(|_| Ok(()))
@@ -100,7 +106,7 @@ impl Repo for MongoRepo {
         let j = self
             .client
             .database(self.database.as_str())
-            .collection::<JobDto>("job")
+            .collection::<JobDto>(self.collection.as_str())
             .find_one(doc! {"_id":name.as_ref().to_string()}, None)
             .await
             .map_err(|e| Error::Repo(e.to_string()))?;
@@ -122,7 +128,7 @@ impl Repo for MongoRepo {
         let update_doc = doc! { "$set": doc! { "state": STANDARD.encode(&state) }};
         self.client
             .database(self.database.as_str())
-            .collection::<JobDto>("job")
+            .collection::<JobDto>(self.collection.as_str())
             .update_one(doc! {"_id":name.as_str()}, update_doc, opts)
             .await
             .map(|_| Ok(()))
@@ -141,7 +147,7 @@ impl Repo for MongoRepo {
 
         self.client
             .database(self.database.as_str())
-            .collection::<JobDto>("job")
+            .collection::<JobDto>(self.collection.as_str())
             .update_one(doc! {"_id":name.as_str()}, update_doc, opts)
             .await
             .map(|_| Ok(()))
@@ -169,40 +175,42 @@ impl Repo for MongoRepo {
         match self
             .client
             .database(self.database.as_str())
-            .collection::<JobDto>("job")
+            .collection::<JobDto>(self.collection.as_str())
             .find_one_and_update(filter_doc, update_doc, opts)
             .await
         {
             Ok(Some(res)) => {
                 let name = res._id.clone();
-                let owner = res.owner.clone();
                 let db = self.client.clone();
 
                 let jd: Result<JobData> = res.try_into();
                 let database = self.database.clone();
+                let collection = self.collection.clone();
                 match jd {
                     Ok(k) => {
                         let fut = async move {
-                            trace!("starting lock refresh");
+                            info!("starting lock refresh");
                             loop {
                                 let refresh_interval = Duration::from_secs(ttl.as_secs() / 2);
                                 sleep(refresh_interval).await;
 
-                                let opts: UpdateOptions = UpdateOptions::builder().upsert(false).build();
+                                let opts: UpdateOptions =
+                                    UpdateOptions::builder().upsert(false).build();
                                 let expires = Utc::now().timestamp() + ttl.as_secs() as i64;
-                                let update_doc = doc! { "$set": doc! { "owner" : owner.clone(), "expires": expires }};
+                                let update_doc = doc! { "$set": doc! { "expires": expires }};
                                 match db
                                     .database(database.as_str())
-                                    .collection::<JobDto>("job")
-                                    .update_one(doc! {"_id":name.as_str()}, update_doc, opts)
-                                    .await {
+                                    .collection::<JobDto>(collection.as_str())
+                                    .update_one(doc! {"_id":name.as_str()}, update_doc, opts) // TODO maybe check for owner
+                                    .await
+                                {
                                     Ok(_) => {}
                                     Err(e) => return Err(Error::LockRefreshFailed(e.to_string())),
                                 }
-                                trace!("lock refreshed");
+                                info!("lock refreshed");
                             }
                         }
-                            .boxed();
+                        .boxed();
 
                         let lock = Lock { fut };
                         Ok(LockStatus::Acquired(k, lock))
@@ -211,7 +219,7 @@ impl Repo for MongoRepo {
                 }
             }
             Ok(None) => {
-                trace!("lock already acquired");
+                info!("lock already acquired");
                 Ok(LockStatus::AlreadyLocked)
             }
             Err(e) => Err(Error::Repo(e.to_string())),

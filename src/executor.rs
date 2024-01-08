@@ -3,7 +3,7 @@ use crate::job::JobData;
 use crate::repos::{LockStatus, Repo};
 use crate::{Job, JobConfig, JobName};
 use chrono::Utc;
-use log::{error, trace};
+use log::{error, info};
 use std::fmt::{Debug, Formatter};
 use tokio::sync::oneshot::Receiver;
 use tokio::time::{sleep, Duration};
@@ -62,7 +62,7 @@ pub(crate) async fn run<J: Repo + Clone + Send>(
         delay,
     );
     loop {
-        trace!("loop {:?}", executor);
+        info!("loop {:?}", executor);
         executor = match executor {
             Executor::Initial(shared, jdata, delay) => on_initial(shared, jdata, delay).await,
             Executor::Start(shared, jdata) => on_start(shared, jdata).await,
