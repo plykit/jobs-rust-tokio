@@ -1,6 +1,6 @@
 [package]
 name = "ply_jobs"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 description = "This crate provides the ability to run background jobs on a schedule."
 license = "MIT-0"

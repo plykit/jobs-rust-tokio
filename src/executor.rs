@@ -165,6 +165,7 @@ async fn on_run<R: Repo>(mut shared: Shared<R>, jdata: JobData, lock: R::Lock) -
         job_result = job_fut => {
             match job_result {
                 Ok(state) => {
+                    info!("callback done, got state");
                     match shared.repo.save(jdata.name.clone(), Utc::now(), state).await {
                         Ok(()) => RunSelectResult::Success,
                         Err(e) => RunSelectResult::SaveFailure(e)
@@ -184,10 +185,22 @@ async fn on_run<R: Repo>(mut shared: Shared<R>, jdata: JobData, lock: R::Lock) -
     // TODO refine all the Done cases to proper sleeps + backoff
     match select_result {
         RunSelectResult::Success => Executor::Sleeping(shared, jdata.check_interval),
-        RunSelectResult::JobFailure(_) => Executor::Done,
-        RunSelectResult::LockFailure(_) => Executor::Done,
-        RunSelectResult::SaveFailure(_) => Executor::Done,
-        RunSelectResult::Canceled => Executor::Done,
+        RunSelectResult::JobFailure(e) => {
+            error!("job failed: {}, seleeping", e);
+            Executor::Sleeping(shared, jdata.check_interval)
+        }
+        RunSelectResult::LockFailure(e) => {
+            error!("lock refresh failed: {}, exiting executor", e);
+            Executor::Done
+        }
+        RunSelectResult::SaveFailure(e) => {
+            error!("state saving failed: {}, exiting executor", e);
+            Executor::Done
+        }
+        RunSelectResult::Canceled => {
+            info!("executor canceled");
+            Executor::Done
+        }
     }
 }
 
