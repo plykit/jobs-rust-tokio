@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use mongodb::Client;
-use ply_jobs::{schedule, Error, Job, JobConfig, JobManager, MongoRepo};
+use ply_jobs::{schedule, Job, JobConfig, JobError, JobManager, MongoRepo};
 use serde::{Deserialize, Serialize};
 use std::process;
 use tokio::time::{sleep, Duration};
@@ -12,7 +12,6 @@ async fn main() {
     // Variant 1 - Use MongoDB
     let client = Client::with_uri_str("mongodb://localhost:27017")
         .await
-        .map_err(|e| Error::Repo(e.to_string()))
         .unwrap();
 
     let repo = MongoRepo::new(client);
@@ -35,7 +34,7 @@ async fn main() {
 
     manager.register(config, job);
 
-    let _ = manager.start_all().unwrap();
+    let _ = manager.start_all();
     sleep(Duration::from_secs(120)).await;
 
     // manager
@@ -58,8 +57,7 @@ struct Counter(i32);
 
 #[async_trait]
 impl Job for CountJob {
-    type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
-    async fn call(&mut self, state: Vec<u8>) -> std::result::Result<Vec<u8>, Self::Error> {
+    async fn call(&mut self, state: Vec<u8>) -> std::result::Result<Vec<u8>, JobError> {
         let mut data: State = if state.len() == 0 {
             State(0)
         } else {
@@ -78,7 +76,7 @@ impl Job for CountJob {
             .get("http://worldtimeapi.org/api/timezone/Europe/London.txt")
             .send()
             .await
-            .map_err(|_| Error::TODO)?
+            .map_err(JobError::any)?
             .text()
             .await
         {
@@ -86,7 +84,7 @@ impl Job for CountJob {
                 println!("Time in London: {:?}", body.lines().take(3).last().unwrap());
                 Ok(serde_json::to_vec(&data).unwrap())
             }
-            Err(e) => Err(Box::new(e)),
+            Err(e) => Err(JobError::any(e)),
         }
     }
 }

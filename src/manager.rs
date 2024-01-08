@@ -1,22 +1,23 @@
 use log::{info, trace, warn};
 use rand::Rng;
+use std::convert::Infallible;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Sender;
 
-use crate::{executor, Error, Job, JobConfig, JobName, Repo, Result};
+use crate::error::Error;
+use crate::repos::Repo;
+use crate::{executor, Job, JobConfig, JobName};
 
 /// JobManager holds the job + lock repo along with the list of jobs
-pub struct JobManager<J, E>
-where
-    J: Repo + Sync + Send + Clone,
-{
+pub struct JobManager<J> {
     instance: String,
     job_repo: J,
-    jobs: Vec<ManagedJob<E>>,
+    jobs: Vec<ManagedJob>,
 }
 
-impl<J: Repo + Clone + Send + Sync + 'static, E: Send + Sync + 'static> JobManager<J, E> {
+#[allow(private_bounds)]
+impl<J: Repo + Clone + Send + 'static> JobManager<J> {
     pub fn new(instance: String, job_repo: J) -> Self {
         JobManager {
             instance,
@@ -24,6 +25,7 @@ impl<J: Repo + Clone + Send + Sync + 'static, E: Send + Sync + 'static> JobManag
             jobs: Default::default(),
         }
     }
+    /// Add a new
     /// register will add the job to the vector of jobs in JobManager
     /// ```rust,ignore
     ///     let mut manager = JobManager::<Repo, Repo>::new(db_repo, lock_repo);
@@ -34,45 +36,42 @@ impl<J: Repo + Clone + Send + Sync + 'static, E: Send + Sync + 'static> JobManag
     ///             expr: "* */3 * * * *".to_string(),
     ///        },
     ///     );
-    pub fn register(
-        &mut self,
-        data: JobConfig,
-        action: impl Job<Error = E> + Send + Sync + 'static,
-    ) {
+    pub fn register(&mut self, data: JobConfig, action: impl Job + Send + 'static) {
         self.jobs.push(ManagedJob::new(data, action)); // TODO: add validation during registration??
     }
 
     /// start_all will spawn the jobs and run the job for ever until the job is stopped or aborted
-    pub fn start_all(&mut self) -> Result<()> {
+    pub fn start_all(&mut self) -> () {
         for job in self.jobs.iter_mut().filter(|jb| jb.registered()) {
             let (tx, rx) = oneshot::channel();
             let job_repo = self.job_repo.clone();
-            let action = job.action.take().unwrap();
-            let data = job.data.clone();
+            let action = job
+                .action
+                .take()
+                .expect("Registered job must have some action because it cannot be taken.");
+            let config = job.config.clone();
 
             job.status = Status::Running(tx);
             let instance = self.instance.clone();
             let mut rng = rand::thread_rng();
             let delay = Duration::from_millis(rng.gen_range(10..100));
             tokio::spawn(async move {
-                let name = data.name.clone();
-                trace!("start executor for job {:?}", &name);
-                // let ex = Executor::new(instance, data, action, job_repo, rx, delay);
-                match executor::run(instance, data, action, job_repo, rx, delay).await {
+                let name = config.name.clone();
+                match executor::run(instance, config, action, job_repo, rx, delay).await {
                     Ok(()) => trace!("job {:?} stopped", &name),
                     Err(e) => warn!("job {:?} stopped with an error: {:?}", &name, e),
                 };
             });
         }
-        Ok(())
+        ()
     }
     /// stop_by_name will stop the job which is started as part of start_all
-    pub async fn stop_by_name(self, name: JobName) -> Result<()> {
-        for job in self.jobs.into_iter().filter(|j| j.data.name == name) {
+    pub async fn stop_by_name(self, name: JobName) -> std::result::Result<(), Infallible> {
+        for job in self.jobs.into_iter().filter(|j| j.config.name == name) {
             return match job.status {
                 Status::Running(s) => {
                     info!("received stop signal. Stopping job: {:?}", name.clone());
-                    let _xx = s.send(()).map_err(|()| Error::CancelFailed(name))?;
+                    let _xx = s.send(()).map_err(|()| Error::CancelFailed(name)).unwrap();
                     Ok(())
                 }
                 _ => Ok(()),
@@ -82,10 +81,10 @@ impl<J: Repo + Clone + Send + Sync + 'static, E: Send + Sync + 'static> JobManag
     }
 }
 
-impl<E> ManagedJob<E> {
-    pub fn new(data: JobConfig, action: impl Job<Error = E> + Send + Sync + 'static) -> Self {
+impl ManagedJob {
+    pub fn new(config: JobConfig, action: impl Job + Send + 'static) -> Self {
         ManagedJob {
-            data,
+            config,
             action: Some(Box::new(action)),
             status: Status::Registered,
         }
@@ -98,9 +97,9 @@ impl<E> ManagedJob<E> {
     }
 }
 
-pub struct ManagedJob<E> {
-    pub data: JobConfig,
-    pub action: Option<Box<dyn Job<Error = E> + Send + Sync>>,
+pub(crate) struct ManagedJob {
+    pub config: JobConfig,
+    pub action: Option<Box<dyn Job + Send>>,
     pub status: Status,
 }
 

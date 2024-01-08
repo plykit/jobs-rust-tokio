@@ -1,13 +1,11 @@
-use chrono::{DateTime, Utc};
-use cron::Schedule;
-use log::trace;
-use std::fmt;
-use std::fmt::Display;
-use std::time::Duration;
+use crate::schedule::Schedule;
 use crate::{JobConfig, JobName};
+use chrono::{DateTime, Utc};
+use std::fmt::Debug;
+use std::time::Duration;
 
 #[derive(Clone, Debug)]
-pub struct JobData {
+pub(crate) struct JobData {
     pub name: JobName,
     pub check_interval: Duration,
     pub lock_ttl: Duration,
@@ -18,32 +16,8 @@ pub struct JobData {
 }
 
 impl JobData {
-    pub fn due(&self, now: DateTime<Utc>) -> bool {
-        if !self.enabled {
-            return false;
-        }
-        trace!("last run: {:?}", self.last_run);
-        let next = self
-            .schedule
-            .after(&self.last_run)
-            .next()
-            .unwrap_or_else(|| DateTime::default());
-        trace!("next run: {:?}", next);
-        next.lt(&now)
-    }
-}
-
-impl Display for JobData {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "[{} schedule='{}' lastrun={} interval={}s ttl={}s]",
-            self.name.0,
-            self.schedule,
-            self.last_run,
-            self.check_interval.as_secs(),
-            self.lock_ttl.as_secs()
-        )
+    pub(crate) fn due(&self, now: DateTime<Utc>) -> bool {
+        self.enabled && self.schedule.due(&self.last_run, now)
     }
 }
 

@@ -1,83 +1,26 @@
 #[cfg(all(feature = "pickledb", feature = "mongodb"))]
 compile_error!("feature \"pickledb\" and feature \"mongodb\" cannot be enabled at the same time");
 
+mod error;
 mod executor;
 mod job;
 mod manager;
 mod repos;
+pub mod schedule;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
-use cron::Schedule;
-use derive_more::Into;
 use serde::{Deserialize, Serialize};
-use std::future::Future;
+use std::fmt::{Debug, Display, Formatter};
 use std::time::Duration;
-use thiserror::Error;
 
-pub mod schedule;
-use job::JobData;
 pub use manager::JobManager;
 #[cfg(feature = "mongodb")]
 pub use repos::mongo::MongoRepo;
 #[cfg(feature = "pickledb")]
 pub use repos::pickledb::PickleDbRepo;
+use schedule::Schedule;
 
-#[async_trait]
-pub trait Job {
-    type Error: Sync + Send + 'static;
-    async fn call(&mut self, state: Vec<u8>) -> std::result::Result<Vec<u8>, Self::Error>;
-}
-
-#[derive(Error, Debug)]
-pub enum Error {
-    // #[error("data store disconnected")]
-    // Disconnect(#[from] io::Error),
-    // #[error("the data for key `{0}` is not available")]
-    // Redaction(String),
-    #[error("invalid cron expression {expression:?}: {msg:?})")]
-    InvalidCronExpression { expression: String, msg: String },
-    #[error("Job is missing: {0:?}")]
-    JobNotFound(JobName),
-    #[error("Repository error: {0}")]
-    Repo(String),
-    #[error("Loack refresh failed: {0}")]
-    LockRefreshFailed(String),
-    #[error("canceling job {0:?} failed")]
-    CancelFailed(JobName),
-
-    #[error("TODO")]
-    TODO,
-}
-
-pub type Result<T> = std::result::Result<T, Error>;
-
-pub enum LockStatus<LOCK> {
-    Acquired(JobData, LOCK),
-    AlreadyLocked,
-}
-
-#[async_trait]
-pub trait Repo {
-    type Lock: Future<Output = Result<()>> + Send;
-    // Transactionally create job config entry if it does not exist.
-    async fn create(&mut self, data: JobData) -> Result<()>;
-    // Obtain job data by name without locking
-    async fn get(&mut self, name: JobName) -> Result<Option<JobData>>;
-    // Save state without unlocking so jobs can do intermediate commits.
-    async fn commit(&mut self, name: JobName, state: Vec<u8>) -> Result<()>;
-    // Save the job state after the job ran and release the lock.
-    async fn save(&mut self, name: JobName, last_run: DateTime<Utc>, state: Vec<u8>) -> Result<()>;
-    // Get the job data if the lock can be obtained. Return job data and the lock future.
-    async fn lock(
-        &mut self,
-        name: JobName,
-        owner: String,
-        ttl: Duration,
-    ) -> Result<LockStatus<Self::Lock>>;
-}
-
-#[derive(Default, Clone, Into, Eq, Hash, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct JobName(pub String);
 
 impl JobName {
@@ -86,7 +29,7 @@ impl JobName {
     }
 }
 
-impl AsRef<str> for JobName {
+impl AsRef<str> for crate::JobName {
     fn as_ref(&self) -> &str {
         self.0.as_str()
     }
@@ -119,4 +62,48 @@ impl JobConfig {
         self.lock_ttl = ttl;
         self
     }
+}
+
+pub struct JobError(String);
+
+impl JobError {
+    pub fn todo() -> Self {
+        JobError("todo".into())
+    }
+    pub fn any(err: impl std::error::Error) -> Self {
+        JobError(err.to_string())
+    }
+    pub fn data_corruption(err: impl std::error::Error) -> Self {
+        JobError(format!("data corruption: {}", err))
+    }
+}
+
+impl From<&str> for JobError {
+    fn from(value: &str) -> Self {
+        JobError(value.to_owned())
+    }
+}
+
+impl From<String> for JobError {
+    fn from(value: String) -> Self {
+        JobError(value)
+    }
+}
+
+impl Debug for JobError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("JobError('{}')", self.0))
+    }
+}
+
+impl Display for JobError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("JobError('{}')", self.0))
+    }
+}
+impl std::error::Error for JobError {}
+
+#[async_trait]
+pub trait Job {
+    async fn call(&mut self, state: Vec<u8>) -> Result<Vec<u8>, JobError>;
 }

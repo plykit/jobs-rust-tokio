@@ -1,21 +1,19 @@
+use super::{Lock, LockStatus, Repo};
+use crate::error::{Error, Result};
 use crate::job::JobData;
-use crate::{Error, JobName, LockStatus, Repo, Result};
+use crate::schedule::Schedule;
+use crate::JobName;
 use async_trait::async_trait;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use chrono::{DateTime, Utc};
-use cron::Schedule;
-use futures::future::BoxFuture;
 use futures::FutureExt;
 use log::trace;
 use mongodb::bson::doc;
 use mongodb::options::{FindOneAndUpdateOptions, ReturnDocument, UpdateOptions};
 use mongodb::Client;
 use serde::{Deserialize, Serialize};
-use std::future::Future;
-use std::pin::Pin;
 use std::str::FromStr;
-use std::task::{Context, Poll};
 use std::time::{Duration, UNIX_EPOCH};
 use tokio::time::sleep;
 
@@ -51,7 +49,7 @@ impl From<JobData> for JobDto {
             check_interval: value.check_interval.as_secs(),
             lock_ttl: value.lock_ttl.as_secs(),
             state: STANDARD.encode(&value.state),
-            schedule: value.schedule.to_string(),
+            schedule: value.schedule.into(),
             enabled: value.enabled,
             last_run: value.last_run.timestamp() as u64,
             owner: "".to_string(),
@@ -65,12 +63,7 @@ impl TryFrom<JobDto> for JobData {
     type Error = Error;
 
     fn try_from(value: JobDto) -> std::result::Result<Self, Self::Error> {
-        let schedule = Schedule::from_str(value.schedule.as_str()).map_err(|e| {
-            Error::InvalidCronExpression {
-                expression: value.schedule,
-                msg: e.to_string(),
-            }
-        })?;
+        let schedule = Schedule::from_str(value.schedule.as_str())?;
         let state = STANDARD.decode(&value.state).map_err(|_e| Error::TODO)?;
         Ok(Self {
             name: JobName(value._id),
@@ -82,10 +75,6 @@ impl TryFrom<JobDto> for JobData {
             last_run: DateTime::<Utc>::from(UNIX_EPOCH + Duration::from_secs(value.last_run)),
         })
     }
-}
-
-pub struct Lock {
-    fut: BoxFuture<'static, Result<()>>,
 }
 
 #[async_trait]
@@ -222,13 +211,5 @@ impl Repo for MongoRepo {
             }
             Err(e) => Err(Error::Repo(e.to_string())),
         }
-    }
-}
-
-impl Future for Lock {
-    type Output = crate::Result<()>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.fut.poll_unpin(cx)
     }
 }
