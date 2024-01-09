@@ -8,7 +8,7 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use chrono::{DateTime, Utc};
 use futures::FutureExt;
-use log::info;
+use log::trace;
 use mongodb::bson::doc;
 use mongodb::options::{FindOneAndUpdateOptions, ReturnDocument, UpdateOptions};
 use mongodb::Client;
@@ -189,7 +189,7 @@ impl Repo for MongoRepo {
                 match jd {
                     Ok(k) => {
                         let fut = async move {
-                            info!("starting lock refresh");
+                            trace!("starting lock refresh");
                             loop {
                                 let refresh_interval = Duration::from_secs(ttl.as_secs() / 2);
                                 sleep(refresh_interval).await;
@@ -207,7 +207,7 @@ impl Repo for MongoRepo {
                                     Ok(_) => {}
                                     Err(e) => return Err(Error::LockRefreshFailed(e.to_string())),
                                 }
-                                info!("lock refreshed");
+                                trace!("lock refreshed");
                             }
                         }
                         .boxed();
@@ -219,7 +219,7 @@ impl Repo for MongoRepo {
                 }
             }
             Ok(None) => {
-                info!("lock already acquired");
+                trace!("lock already acquired");
                 Ok(LockStatus::AlreadyLocked)
             }
             Err(e) => Err(Error::Repo(e.to_string())),

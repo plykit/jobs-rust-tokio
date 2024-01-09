@@ -3,7 +3,7 @@ use crate::job::JobData;
 use crate::repos::{LockStatus, Repo};
 use crate::{Job, JobConfig, JobName};
 use chrono::Utc;
-use log::{error, info};
+use log::{error, info, trace};
 use std::fmt::{Debug, Formatter};
 use tokio::sync::oneshot::Receiver;
 use tokio::time::{sleep, Duration};
@@ -62,7 +62,7 @@ pub(crate) async fn run<J: Repo + Clone + Send>(
         delay,
     );
     loop {
-        info!("loop {:?}", executor);
+        trace!("loop {:?}", executor);
         executor = match executor {
             Executor::Initial(shared, jdata, delay) => on_initial(shared, jdata, delay).await,
             Executor::Start(shared, jdata) => on_start(shared, jdata).await,
@@ -165,7 +165,7 @@ async fn on_run<R: Repo>(mut shared: Shared<R>, jdata: JobData, lock: R::Lock) -
         job_result = job_fut => {
             match job_result {
                 Ok(state) => {
-                    info!("callback done, got state");
+                    trace!("callback done, got state");
                     match shared.repo.save(jdata.name.clone(), Utc::now(), state).await {
                         Ok(()) => RunSelectResult::Success,
                         Err(e) => RunSelectResult::SaveFailure(e)
